@@ -1,0 +1,25 @@
+# Local environment
+.venv/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+
+# Generated data and heavy geospatial artifacts
+data/cache/*
+data/boundaries/*.geojson
+data/boundaries/*.json
+data/boundaries/*.zip
+data/boundaries/*_shp/
+data/boundaries/children_by_parent/*
+
+# Keep directory placeholders
+!data/.gitkeep
+!data/cache/.gitkeep
+!data/boundaries/.gitkeep

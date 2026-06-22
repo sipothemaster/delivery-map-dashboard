@@ -215,9 +215,20 @@ def main() -> None:
             mean_deliverable_restaurant_count=("deliverable_restaurant_count", "mean"),
             min_deliverable_restaurant_count=("deliverable_restaurant_count", "min"),
             max_deliverable_restaurant_count=("deliverable_restaurant_count", "max"),
+            food_restaurant_count=("food_restaurant_count", "sum"),
+            fast_food_restaurant_count=("fast_food_restaurant_count", "sum"),
+            median_food_restaurant_count=("food_restaurant_count", "median"),
+            mean_food_restaurant_count=("food_restaurant_count", "mean"),
+            median_fast_food_restaurant_count=("fast_food_restaurant_count", "median"),
+            mean_fast_food_restaurant_count=("fast_food_restaurant_count", "mean"),
+            median_fast_food_restaurant_share=("fast_food_restaurant_share", "median"),
+            mean_fast_food_restaurant_share=("fast_food_restaurant_share", "mean"),
             coverage_label=("coverage_label", "first"),
         )
     )
+    parent_coverage["fast_food_restaurant_share"] = (
+        parent_coverage["fast_food_restaurant_count"] / parent_coverage["food_restaurant_count"]
+    ).where(parent_coverage["food_restaurant_count"] > 0)
     parent_coverage.to_parquet(PARENT_COVERAGE, index=False)
     print(f"Wrote {PARENT_COVERAGE}: {len(parent_coverage):,} parent rows")
 

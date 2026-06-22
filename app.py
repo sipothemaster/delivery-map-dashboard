@@ -164,6 +164,12 @@ def make_parent_map(selected_parents: list[dict] | None = None) -> go.Figure:
             "child_area_count": True,
             "median_deliverable_restaurant_count": ":.0f",
             "mean_deliverable_restaurant_count": ":.0f",
+            "food_restaurant_count": ":.0f",
+            "fast_food_restaurant_count": ":.0f",
+            "fast_food_restaurant_share": ":.1%",
+            "median_food_restaurant_count": ":.0f",
+            "median_fast_food_restaurant_count": ":.0f",
+            "median_fast_food_restaurant_share": ":.1%",
             "min_deliverable_restaurant_count": ":.0f",
             "max_deliverable_restaurant_count": ":.0f",
         },
@@ -214,6 +220,9 @@ def make_child_map(selected_parents: list[dict]) -> go.Figure:
             "parent_name": True,
             "representative_postcode": True,
             "deliverable_restaurant_count": True,
+            "food_restaurant_count": True,
+            "fast_food_restaurant_count": True,
+            "fast_food_restaurant_share": ":.1%",
         },
         color_continuous_scale="Viridis",
         mapbox_style="carto-positron",
@@ -245,6 +254,9 @@ def make_status(selected_parents: list[dict] | None) -> list[html.Div]:
             "Selected LADs": f"{len(parent_ids):,}",
             "Areas": f"{len(rows):,}",
             "Median restaurants": "-" if rows.empty else f"{rows['deliverable_restaurant_count'].median():.0f}",
+            "Fast food share": "-"
+            if rows.empty or rows["food_restaurant_count"].sum() == 0
+            else f"{rows['fast_food_restaurant_count'].sum() / rows['food_restaurant_count'].sum():.1%}",
             "Coverage": "-" if rows.empty else str(rows["coverage_label"].dropna().iloc[0]),
         }
     else:
@@ -253,6 +265,7 @@ def make_status(selected_parents: list[dict] | None) -> list[html.Div]:
             "Local authorities": f"{len(PARENT_COVERAGE):,}",
             "Child areas": f"{len(AREA_COVERAGE):,}",
             "Median restaurants": f"{PARENT_COVERAGE['median_deliverable_restaurant_count'].median():.0f}",
+            "Fast food share": f"{PARENT_COVERAGE['fast_food_restaurant_count'].sum() / PARENT_COVERAGE['food_restaurant_count'].sum():.1%}",
             "Data mode": DATA_MODE,
         }
     return [

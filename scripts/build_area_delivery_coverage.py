@@ -29,6 +29,45 @@ AREA_MAPPING_SCHEMA = [
     bigquery.SchemaField("urban_rural_2", "STRING"),
 ]
 
+FAST_FOOD_TAGS = [
+    "Burgers",
+    "Pizza",
+    "Chicken",
+    "Kebab",
+    "Fish & Chips",
+    "Peri Peri",
+    "Fast Food",
+    "Italian Pizza",
+    "Gourmet Burgers",
+    "Hot Dogs",
+    "Authentic Pizza",
+    "Parmesans",
+    "Subways",
+]
+
+NON_RESTAURANT_TAGS = [
+    "Groceries",
+    "Convenience",
+    "Shops",
+    "Pharmacy",
+    "Health and Beauty",
+    "Beauty",
+    "Electronics",
+    "Flowers",
+    "Alcohol",
+    "Tobacco",
+    "Vapes",
+    "Supermarket",
+    "Supermarkets",
+    "Off Licence",
+    "Off licence",
+    "Pet Shop",
+    "Pet-Supplies",
+    "Household",
+    "Gifts",
+    "All Night Alcohol",
+]
+
 
 def table_id(table_name: str) -> str:
     if table_name.count(".") == 2:
@@ -68,10 +107,14 @@ def upload_area_mapping(client: bigquery.Client) -> None:
 def build_area_coverage_table(client: bigquery.Client, coverage_label: str | None) -> None:
     mapping = table_id(settings.bq_area_mapping_table)
     source = table_id(settings.bq_delivery_map_table)
+    profile = table_id(settings.bq_restaurant_profile_table)
     destination = table_id(settings.bq_area_coverage_table)
 
     where_sql = ""
-    query_params = []
+    query_params = [
+        bigquery.ArrayQueryParameter("fast_food_tags", "STRING", FAST_FOOD_TAGS),
+        bigquery.ArrayQueryParameter("non_restaurant_tags", "STRING", NON_RESTAURANT_TAGS),
+    ]
     coverage_expr = "CAST(NULL AS STRING)"
     if coverage_label:
         # This is a static coverage-version label from postcode_restaurant_delivery_map, not an open-now snapshot table.
@@ -88,6 +131,31 @@ def build_area_coverage_table(client: bigquery.Client, coverage_label: str | Non
         CAST(is_delivery AS BOOL) AS is_delivery
       FROM `{source}`
       {where_sql}
+    ),
+    restaurant_tags AS (
+      SELECT
+        CAST(restaurant_id AS STRING) AS restaurant_id,
+        ARRAY(
+          SELECT TRIM(part)
+          FROM UNNEST(SPLIT(CAST(cuisine_names AS STRING), ',')) AS part
+          WHERE TRIM(part) != ''
+        ) AS cuisine_tags
+      FROM `{profile}`
+    ),
+    restaurant_flags AS (
+      SELECT
+        restaurant_id,
+        EXISTS(
+          SELECT 1
+          FROM UNNEST(cuisine_tags) AS tag
+          WHERE tag IN UNNEST(@fast_food_tags)
+        ) AS is_strong_fast_food,
+        EXISTS(
+          SELECT 1
+          FROM UNNEST(cuisine_tags) AS tag
+          WHERE tag IN UNNEST(@non_restaurant_tags)
+        ) AS is_non_restaurant_retail
+      FROM restaurant_tags
     )
     SELECT
       a.area_id,
@@ -102,11 +170,19 @@ def build_area_coverage_table(client: bigquery.Client, coverage_label: str | Non
       a.urban_rural_3,
       a.urban_rural_2,
       COUNT(DISTINCT IF(m.is_delivery, m.restaurant_id, NULL)) AS deliverable_restaurant_count,
+      COUNT(DISTINCT IF(m.is_delivery AND COALESCE(NOT rf.is_non_restaurant_retail, TRUE), m.restaurant_id, NULL)) AS food_restaurant_count,
+      COUNT(DISTINCT IF(m.is_delivery AND COALESCE(NOT rf.is_non_restaurant_retail, TRUE) AND COALESCE(rf.is_strong_fast_food, FALSE), m.restaurant_id, NULL)) AS fast_food_restaurant_count,
+      SAFE_DIVIDE(
+        COUNT(DISTINCT IF(m.is_delivery AND COALESCE(NOT rf.is_non_restaurant_retail, TRUE) AND COALESCE(rf.is_strong_fast_food, FALSE), m.restaurant_id, NULL)),
+        COUNT(DISTINCT IF(m.is_delivery AND COALESCE(NOT rf.is_non_restaurant_retail, TRUE), m.restaurant_id, NULL))
+      ) AS fast_food_restaurant_share,
       {coverage_expr} AS coverage_label,
       CURRENT_TIMESTAMP() AS updated_at
     FROM `{mapping}` AS a
     LEFT JOIN source_map AS m
       ON a.representative_postcode_clean = m.postcode_clean
+    LEFT JOIN restaurant_flags AS rf
+      ON m.restaurant_id = rf.restaurant_id
     GROUP BY
       a.area_id,
       a.area_type,

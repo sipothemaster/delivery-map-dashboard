@@ -22,6 +22,36 @@ PARENT_NAME_BY_ID = dict(zip(PARENT_COVERAGE["parent_id"], PARENT_COVERAGE["pare
 MAP_UIREVISION = "delivery-map-preserve-view"
 DEFAULT_CENTER = {"lat": 54.7, "lon": -3.2}
 DEFAULT_ZOOM = 4.7
+METRIC_OPTIONS = {
+    "deliverable_restaurant_count": {
+        "label": "Total restaurants",
+        "parent_column": "median_deliverable_restaurant_count",
+        "child_column": "deliverable_restaurant_count",
+        "title": "Deliverable restaurants",
+        "colorbar": "Restaurants",
+        "format": ":.0f",
+    },
+    "fast_food_restaurant_count": {
+        "label": "Fast food restaurants",
+        "parent_column": "median_fast_food_restaurant_count",
+        "child_column": "fast_food_restaurant_count",
+        "title": "Fast food restaurants",
+        "colorbar": "Fast food restaurants",
+        "format": ":.0f",
+    },
+    "fast_food_restaurant_share": {
+        "label": "Fast food share",
+        "parent_column": "fast_food_restaurant_share",
+        "child_column": "fast_food_restaurant_share",
+        "title": "Fast food share",
+        "colorbar": "Fast food share",
+        "format": ":.1%",
+    },
+}
+
+
+def metric_config(metric_key: str | None) -> dict:
+    return METRIC_OPTIONS.get(metric_key or "", METRIC_OPTIONS["deliverable_restaurant_count"])
 
 
 def selected_parent_ids(selected_parents: list[dict] | None) -> list[str]:
@@ -150,14 +180,15 @@ def parent_click_trace(selected_ids: list[str]) -> go.Choroplethmapbox:
     )
 
 
-def make_parent_map(selected_parents: list[dict] | None = None) -> go.Figure:
+def make_parent_map(selected_parents: list[dict] | None = None, metric_key: str | None = None) -> go.Figure:
     selected_ids = selected_parent_ids(selected_parents)
+    metric = metric_config(metric_key)
     fig = px.choropleth_mapbox(
         PARENT_COVERAGE,
         geojson=PARENT_GEOJSON,
         locations="parent_id",
         featureidkey="properties.parent_id",
-        color="median_deliverable_restaurant_count",
+        color=metric["parent_column"],
         hover_name="parent_name",
         hover_data={
             "parent_id": True,
@@ -183,8 +214,8 @@ def make_parent_map(selected_parents: list[dict] | None = None) -> go.Figure:
     )
     fig.update_layout(
         margin={"l": 0, "r": 0, "t": 34, "b": 0},
-        title="Median deliverable restaurants by local authority",
-        coloraxis_colorbar={"title": "Median restaurants"},
+        title=f"{metric['title']} by local authority",
+        coloraxis_colorbar={"title": metric["colorbar"]},
         uirevision=MAP_UIREVISION,
         clickmode="event",
     )
@@ -200,19 +231,20 @@ def combined_child_geojson(parent_ids: list[str]) -> dict:
     return {"type": "FeatureCollection", "features": features}
 
 
-def make_child_map(selected_parents: list[dict]) -> go.Figure:
+def make_child_map(selected_parents: list[dict], metric_key: str | None = None) -> go.Figure:
     parent_ids = selected_parent_ids(selected_parents)
     child_rows = AREA_COVERAGE[AREA_COVERAGE["parent_id"].isin(parent_ids)].copy()
     child_geojson = combined_child_geojson(parent_ids)
     if child_rows.empty or not child_geojson.get("features"):
         return empty_figure("Selected local authorities", "No child polygons found for the selected local authorities.")
 
+    metric = metric_config(metric_key)
     fig = px.choropleth_mapbox(
         child_rows,
         geojson=child_geojson,
         locations="area_id",
         featureidkey="properties.area_id",
-        color="deliverable_restaurant_count",
+        color=metric["child_column"],
         hover_name="area_name",
         hover_data={
             "area_id": True,
@@ -233,8 +265,8 @@ def make_child_map(selected_parents: list[dict]) -> go.Figure:
     )
     fig.update_layout(
         margin={"l": 0, "r": 0, "t": 34, "b": 0},
-        title=f"Deliverable restaurants by LSOA/Data Zone in {selected_parent_label(selected_parents)}",
-        coloraxis_colorbar={"title": "Restaurants"},
+        title=f"{metric['title']} by LSOA/Data Zone in {selected_parent_label(selected_parents)}",
+        coloraxis_colorbar={"title": metric["colorbar"]},
         uirevision=MAP_UIREVISION,
         clickmode="event",
     )
@@ -296,6 +328,22 @@ app.layout = html.Div(
             className="header",
         ),
         html.Div(id="metric-cards", className="metric-cards"),
+        html.Div(
+            [
+                html.Div("Map metric", className="control-label"),
+                dcc.RadioItems(
+                    id="metric-selector",
+                    options=[
+                        {"label": config["label"], "value": key}
+                        for key, config in METRIC_OPTIONS.items()
+                    ],
+                    value="deliverable_restaurant_count",
+                    inline=True,
+                    className="metric-selector",
+                ),
+            ],
+            className="controls",
+        ),
         html.Div(dcc.Graph(id="map", config={"displayModeBar": True, "scrollZoom": True}), className="map-panel"),
         html.Div(
             "Static full delivery coverage. Select local authorities from the overview; hover LSOA/Data Zone polygons for details. Use Clear selection to reset.",
@@ -324,11 +372,12 @@ def update_selected_parents(click_data, clear_clicks, selected_parents):
     Output("metric-cards", "children"),
     Output("clear-button", "style"),
     Input("selected-parents", "data"),
+    Input("metric-selector", "value"),
 )
-def update_map(selected_parents):
+def update_map(selected_parents, metric_key):
     if selected_parent_ids(selected_parents):
-        return make_child_map(selected_parents), make_status(selected_parents), {"display": "inline-flex"}
-    return make_parent_map(selected_parents), make_status(selected_parents), {"display": "none"}
+        return make_child_map(selected_parents, metric_key), make_status(selected_parents), {"display": "inline-flex"}
+    return make_parent_map(selected_parents, metric_key), make_status(selected_parents), {"display": "none"}
 
 
 app.index_string = """
@@ -349,6 +398,10 @@ app.index_string = """
             .metric-card { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 12px 14px; min-height: 58px; }
             .card-label { font-size: 12px; color: #5f6368; }
             .card-value { margin-top: 4px; font-size: 22px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .controls { display: flex; align-items: center; gap: 16px; padding: 0 24px 14px; }
+            .control-label { font-size: 13px; font-weight: 700; color: #3c4043; }
+            .metric-selector label { display: inline-flex; align-items: center; gap: 6px; margin-right: 18px; font-size: 14px; color: #202124; }
+            .metric-selector input { margin: 0; }
             .map-panel { margin: 0 24px 10px; background: white; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
             .footnote { margin: 0 24px 24px; color: #5f6368; font-size: 13px; }
             @media (max-width: 1100px) { .metric-cards { grid-template-columns: repeat(2, 1fr); } }

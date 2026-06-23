@@ -22,20 +22,28 @@ PARENT_GEOJSON = load_parent_geojson()
 AREA_COVERAGE = load_area_coverage_with_parent()
 DATA_MODE = "parent overview + lazy child tiles"
 PARENT_NAME_BY_ID = dict(zip(PARENT_COVERAGE["parent_id"], PARENT_COVERAGE["parent_name"]))
+PARENT_COVERAGE_IDS = set(PARENT_NAME_BY_ID)
+PARENT_COVERAGE_GEOJSON = {
+    "type": "FeatureCollection",
+    "features": [
+        feature
+        for feature in PARENT_GEOJSON.get("features", [])
+        if str((feature.get("properties") or {}).get("parent_id")) in PARENT_COVERAGE_IDS
+    ],
+}
 PARENT_BOUNDARIES = [
     {
         "parent_id": str((feature.get("properties") or {}).get("parent_id")),
         "parent_name": str((feature.get("properties") or {}).get("parent_name")),
     }
-    for feature in PARENT_GEOJSON.get("features", [])
-    if (feature.get("properties") or {}).get("parent_id")
+    for feature in PARENT_COVERAGE_GEOJSON.get("features", [])
 ]
 PARENT_BOUNDARY_IDS = [row["parent_id"] for row in PARENT_BOUNDARIES]
 PARENT_BOUNDARY_CUSTOMDATA = [
     [
         row["parent_id"],
         row["parent_name"],
-        "Click to add to selection" if row["parent_id"] in PARENT_NAME_BY_ID else "Boundary only",
+        "Click to add to selection",
     ]
     for row in PARENT_BOUNDARIES
 ]
@@ -216,7 +224,7 @@ def add_parent_outline_layer(fig: go.Figure) -> go.Figure:
     existing_layers.append(
         {
             "sourcetype": "geojson",
-            "source": PARENT_GEOJSON,
+            "source": PARENT_COVERAGE_GEOJSON,
             "type": "line",
             "color": "#475569",
             "line": {"width": 0.9},

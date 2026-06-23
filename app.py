@@ -210,6 +210,37 @@ def add_parent_outline_layer(fig: go.Figure) -> go.Figure:
     return fig
 
 
+@lru_cache(maxsize=128)
+def parent_feature_subset(parent_ids: tuple[str, ...]) -> dict:
+    wanted = set(parent_ids)
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            feature
+            for feature in PARENT_GEOJSON.get("features", [])
+            if str((feature.get("properties") or {}).get("parent_id")) in wanted
+        ],
+    }
+
+
+def add_selected_parent_outline_layer(fig: go.Figure, selected_ids: list[str]) -> go.Figure:
+    if not selected_ids:
+        return fig
+    existing_layers = list(getattr(fig.layout.mapbox, "layers", []) or [])
+    existing_layers.append(
+        {
+            "sourcetype": "geojson",
+            "source": parent_feature_subset(tuple(selected_ids)),
+            "type": "line",
+            "color": "#475569",
+            "line": {"width": 1.2},
+            "opacity": 0.55,
+        }
+    )
+    fig.update_layout(mapbox_layers=existing_layers)
+    return fig
+
+
 def parent_click_trace(selected_ids: list[str]) -> go.Choroplethmapbox:
     rows = PARENT_COVERAGE[~PARENT_COVERAGE["parent_id"].isin(selected_ids)].copy()
     return go.Choroplethmapbox(
@@ -222,8 +253,9 @@ def parent_click_trace(selected_ids: list[str]) -> go.Choroplethmapbox:
             [1, "rgba(255,255,255,0.03)"],
         ],
         showscale=False,
-        marker_opacity=0.03,
-        marker_line_width=0,
+        marker_opacity=0.02,
+        marker_line_color="#475569",
+        marker_line_width=0.8,
         customdata=rows[["parent_id", "parent_name"]].values,
         hovertemplate="<b>%{customdata[1]}</b><br>Click to add to selection<extra></extra>",
         name="Add local authority",
@@ -340,7 +372,7 @@ def make_child_map(
     # Put a transparent click target above the child trace, but only for unselected
     # LADs. It does not cover selected LADs, so child-area hover remains available.
     fig.add_trace(parent_click_trace(parent_ids))
-    add_parent_outline_layer(fig)
+    add_selected_parent_outline_layer(fig, parent_ids)
     return fig
 
 

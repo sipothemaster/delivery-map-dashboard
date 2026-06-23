@@ -242,21 +242,21 @@ def add_selected_parent_outline_layer(fig: go.Figure, selected_ids: list[str]) -
 
 
 def parent_click_trace(selected_ids: list[str]) -> go.Choroplethmapbox:
-    rows = PARENT_COVERAGE[~PARENT_COVERAGE["parent_id"].isin(selected_ids)].copy()
+    z_values = PARENT_COVERAGE["parent_id"].isin(selected_ids).astype(int)
     return go.Choroplethmapbox(
         geojson=PARENT_GEOJSON,
-        locations=rows["parent_id"],
-        z=[1] * len(rows),
+        locations=PARENT_COVERAGE["parent_id"],
+        z=z_values,
         featureidkey="properties.parent_id",
         colorscale=[
             [0, "rgba(255,255,255,0.03)"],
-            [1, "rgba(255,255,255,0.03)"],
+            [1, "rgba(31,41,51,0.10)"],
         ],
         showscale=False,
-        marker_opacity=0.01,
+        marker_opacity=0.08,
         marker_line_color="#334155",
         marker_line_width=1.15,
-        customdata=rows[["parent_id", "parent_name"]].values,
+        customdata=PARENT_COVERAGE[["parent_id", "parent_name"]].values,
         hovertemplate="<b>%{customdata[1]}</b><br>Click to add to selection<extra></extra>",
         name="Add local authority",
     )
@@ -369,9 +369,10 @@ def make_child_map(
         uirevision=MAP_UIREVISION,
         clickmode="event",
     )
-    # Put a transparent click target above the child trace, but only for unselected
-    # LADs. It does not cover selected LADs, so child-area hover remains available.
+    # Keep the LAD click/outline trace below child polygons. This leaves selected
+    # LSOA/Data Zone hover intact while still allowing other LADs to be clicked.
     fig.add_trace(parent_click_trace(parent_ids))
+    fig.data = (fig.data[-1],) + fig.data[:-1]
     add_selected_parent_outline_layer(fig, parent_ids)
     return fig
 
@@ -406,8 +407,9 @@ def patch_map_metric(
 ) -> Patch:
     metric = metric_config(metric_key)
     rows, column, title = current_metric_frame(selected_parents, metric_key, day, hour)
+    trace_index = 1 if selected_parent_ids(selected_parents) else 0
     patch = Patch()
-    patch["data"][0]["z"] = metric_values(rows, column)
+    patch["data"][trace_index]["z"] = metric_values(rows, column)
     patch["layout"]["title"]["text"] = title
     patch["layout"]["coloraxis"]["colorbar"]["title"]["text"] = metric["colorbar"]
     return patch

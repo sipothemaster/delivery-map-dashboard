@@ -42,6 +42,7 @@ delivery_dashboard/geo.py               GeoJSON and area helpers
 delivery_dashboard/tiles.py             Parent/child tile loading helpers
 scripts/download_boundaries.py          Downloads public boundary data
 scripts/build_area_delivery_coverage.py Builds static coverage table/cache
+scripts/build_area_opening_coverage.py Builds hourly opening-time table/cache
 scripts/build_parent_tiles.py           Builds LAD parent metrics and child tiles
 scripts/simplify_boundaries.py          Optional boundary simplification utility
 docs/PROJECT_CONTEXT.md                 Handoff context and design notes
@@ -80,6 +81,14 @@ Build the fast LAD overview and per-parent child polygon tiles:
 .\.venv\Scripts\python.exe scripts\build_parent_tiles.py
 ```
 
+Build hourly delivery opening-time coverage:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\build_area_opening_coverage.py --all --coverage-label weekday_full_20260520
+```
+
+This creates `area_opening_coverage` in BigQuery and local hourly parquet caches under `data/cache/opening_by_hour/` and `data/cache/parent_opening_by_hour/`.
+
 ## Run
 
 ```powershell
@@ -98,6 +107,7 @@ Commit the application code, scripts, README, context docs, and config examples.
 - generated simplified GeoJSON files
 - `data/boundaries/children_by_parent/`
 - local parquet caches
+- hourly opening-time parquet caches
 - Python cache directories
 
 Those files are reproducible local artifacts and are too large/noisy for the repository.

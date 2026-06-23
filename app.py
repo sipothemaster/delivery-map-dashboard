@@ -1,6 +1,8 @@
 ﻿from __future__ import annotations
 
-from dash import Dash, Input, Output, State, callback, dcc, html, no_update
+from functools import lru_cache
+
+from dash import Dash, Input, Output, Patch, State, callback, dcc, html, no_update
 import dash
 import plotly.express as px
 import plotly.graph_objects as go
@@ -12,6 +14,7 @@ from delivery_dashboard.tiles import (
     load_parent_coverage,
     load_parent_geojson,
 )
+from delivery_dashboard.opening import DAYS, load_area_opening, load_parent_opening, safe_hour
 
 
 PARENT_COVERAGE = load_parent_coverage()
@@ -47,11 +50,58 @@ METRIC_OPTIONS = {
         "colorbar": "Fast food share",
         "format": ":.1%",
     },
+    "open_restaurant_count": {
+        "label": "Open restaurants",
+        "parent_column": "median_open_restaurant_count",
+        "child_column": "open_restaurant_count",
+        "title": "Open restaurants",
+        "colorbar": "Open restaurants",
+        "format": ":.0f",
+    },
+    "open_restaurant_share": {
+        "label": "Open restaurant share",
+        "parent_column": "open_restaurant_share",
+        "child_column": "open_restaurant_share",
+        "title": "Open restaurant share",
+        "colorbar": "Open share",
+        "format": ":.1%",
+    },
 }
 
 
 def metric_config(metric_key: str | None) -> dict:
     return METRIC_OPTIONS.get(metric_key or "", METRIC_OPTIONS["deliverable_restaurant_count"])
+
+
+def metric_values(frame, column: str) -> list:
+    return frame[column].where(frame[column].notna(), None).tolist()
+
+
+def is_opening_metric(metric_key: str | None) -> bool:
+    return (metric_key or "").startswith("open_")
+
+
+def selected_time_label(day: str | None, hour: int | str | None) -> str:
+    return f"{day or 'Monday'} {safe_hour(hour):02d}:00"
+
+
+def parent_frame_for_map(day: str | None, hour: int | str | None):
+    opening = load_parent_opening(day, hour)
+    keep = [
+        "parent_id",
+        "open_restaurant_count",
+        "open_restaurant_share",
+        "median_open_restaurant_count",
+        "median_open_restaurant_share",
+        "opening_run_id",
+    ]
+    return PARENT_COVERAGE.merge(opening[[col for col in keep if col in opening.columns]], on="parent_id", how="left")
+
+
+def child_frame_for_map(parent_ids: list[str], day: str | None, hour: int | str | None):
+    rows = AREA_COVERAGE[AREA_COVERAGE["parent_id"].isin(parent_ids)].copy()
+    opening = load_area_opening(day, hour)
+    return rows.merge(opening, on="area_id", how="left")
 
 
 def selected_parent_ids(selected_parents: list[dict] | None) -> list[str]:
@@ -151,9 +201,9 @@ def add_parent_outline_layer(fig: go.Figure) -> go.Figure:
             "sourcetype": "geojson",
             "source": PARENT_GEOJSON,
             "type": "line",
-            "color": "#1f2933",
-            "line": {"width": 1.4},
-            "opacity": 0.7,
+            "color": "#475569",
+            "line": {"width": 0.9},
+            "opacity": 0.38,
         }
     )
     fig.update_layout(mapbox_layers=existing_layers)
@@ -180,11 +230,17 @@ def parent_click_trace(selected_ids: list[str]) -> go.Choroplethmapbox:
     )
 
 
-def make_parent_map(selected_parents: list[dict] | None = None, metric_key: str | None = None) -> go.Figure:
+def make_parent_map(
+    selected_parents: list[dict] | None = None,
+    metric_key: str | None = None,
+    day: str | None = None,
+    hour: int | str | None = None,
+) -> go.Figure:
     selected_ids = selected_parent_ids(selected_parents)
     metric = metric_config(metric_key)
+    rows = parent_frame_for_map(day, hour)
     fig = px.choropleth_mapbox(
-        PARENT_COVERAGE,
+        rows,
         geojson=PARENT_GEOJSON,
         locations="parent_id",
         featureidkey="properties.parent_id",
@@ -201,6 +257,8 @@ def make_parent_map(selected_parents: list[dict] | None = None, metric_key: str 
             "median_food_restaurant_count": ":.0f",
             "median_fast_food_restaurant_count": ":.0f",
             "median_fast_food_restaurant_share": ":.1%",
+            "median_open_restaurant_count": ":.0f",
+            "open_restaurant_share": ":.1%",
             "min_deliverable_restaurant_count": ":.0f",
             "max_deliverable_restaurant_count": ":.0f",
         },
@@ -214,27 +272,33 @@ def make_parent_map(selected_parents: list[dict] | None = None, metric_key: str 
     )
     fig.update_layout(
         margin={"l": 0, "r": 0, "t": 34, "b": 0},
-        title=f"{metric['title']} by local authority",
+        title=f"{metric['title']} by local authority"
+        + (f" at {selected_time_label(day, hour)}" if is_opening_metric(metric_key) else ""),
         coloraxis_colorbar={"title": metric["colorbar"]},
         uirevision=MAP_UIREVISION,
         clickmode="event",
     )
-    if selected_ids:
-        add_parent_outline_trace(fig, selected_ids)
+    add_parent_outline_layer(fig)
     return fig
 
 
-def combined_child_geojson(parent_ids: list[str]) -> dict:
+@lru_cache(maxsize=128)
+def combined_child_geojson(parent_ids_tuple: tuple[str, ...]) -> dict:
     features = []
-    for parent_id in parent_ids:
+    for parent_id in parent_ids_tuple:
         features.extend(load_child_geojson(parent_id).get("features") or [])
     return {"type": "FeatureCollection", "features": features}
 
 
-def make_child_map(selected_parents: list[dict], metric_key: str | None = None) -> go.Figure:
+def make_child_map(
+    selected_parents: list[dict],
+    metric_key: str | None = None,
+    day: str | None = None,
+    hour: int | str | None = None,
+) -> go.Figure:
     parent_ids = selected_parent_ids(selected_parents)
-    child_rows = AREA_COVERAGE[AREA_COVERAGE["parent_id"].isin(parent_ids)].copy()
-    child_geojson = combined_child_geojson(parent_ids)
+    child_rows = child_frame_for_map(parent_ids, day, hour)
+    child_geojson = combined_child_geojson(tuple(parent_ids))
     if child_rows.empty or not child_geojson.get("features"):
         return empty_figure("Selected local authorities", "No child polygons found for the selected local authorities.")
 
@@ -255,6 +319,8 @@ def make_child_map(selected_parents: list[dict], metric_key: str | None = None) 
             "food_restaurant_count": True,
             "fast_food_restaurant_count": True,
             "fast_food_restaurant_share": ":.1%",
+            "open_restaurant_count": True,
+            "open_restaurant_share": ":.1%",
         },
         color_continuous_scale="Viridis",
         mapbox_style="carto-positron",
@@ -265,7 +331,8 @@ def make_child_map(selected_parents: list[dict], metric_key: str | None = None) 
     )
     fig.update_layout(
         margin={"l": 0, "r": 0, "t": 34, "b": 0},
-        title=f"{metric['title']} by LSOA/Data Zone in {selected_parent_label(selected_parents)}",
+        title=f"{metric['title']} by LSOA/Data Zone in {selected_parent_label(selected_parents)}"
+        + (f" at {selected_time_label(day, hour)}" if is_opening_metric(metric_key) else ""),
         coloraxis_colorbar={"title": metric["colorbar"]},
         uirevision=MAP_UIREVISION,
         clickmode="event",
@@ -275,6 +342,43 @@ def make_child_map(selected_parents: list[dict], metric_key: str | None = None) 
     fig.add_trace(parent_click_trace(parent_ids))
     add_parent_outline_layer(fig)
     return fig
+
+
+def current_metric_frame(
+    selected_parents: list[dict] | None,
+    metric_key: str | None,
+    day: str | None,
+    hour: int | str | None,
+):
+    metric = metric_config(metric_key)
+    parent_ids = selected_parent_ids(selected_parents)
+    if parent_ids:
+        rows = child_frame_for_map(parent_ids, day, hour)
+        return rows, metric["child_column"], (
+            f"{metric['title']} by LSOA/Data Zone in {selected_parent_label(selected_parents)}"
+            + (f" at {selected_time_label(day, hour)}" if is_opening_metric(metric_key) else "")
+        )
+    return (
+        parent_frame_for_map(day, hour),
+        metric["parent_column"],
+        f"{metric['title']} by local authority"
+        + (f" at {selected_time_label(day, hour)}" if is_opening_metric(metric_key) else ""),
+    )
+
+
+def patch_map_metric(
+    selected_parents: list[dict] | None,
+    metric_key: str | None,
+    day: str | None,
+    hour: int | str | None,
+) -> Patch:
+    metric = metric_config(metric_key)
+    rows, column, title = current_metric_frame(selected_parents, metric_key, day, hour)
+    patch = Patch()
+    patch["data"][0]["z"] = metric_values(rows, column)
+    patch["layout"]["title"]["text"] = title
+    patch["layout"]["coloraxis"]["colorbar"]["title"]["text"] = metric["colorbar"]
+    return patch
 
 
 def make_status(selected_parents: list[dict] | None) -> list[html.Div]:
@@ -341,6 +445,27 @@ app.layout = html.Div(
                     inline=True,
                     className="metric-selector",
                 ),
+                html.Div("Day", className="control-label"),
+                dcc.Dropdown(
+                    id="day-selector",
+                    options=[{"label": day, "value": day} for day in DAYS],
+                    value="Friday",
+                    clearable=False,
+                    searchable=False,
+                    className="day-selector",
+                ),
+                html.Div("Hour", className="control-label"),
+                dcc.Slider(
+                    id="hour-selector",
+                    min=0,
+                    max=23,
+                    step=1,
+                    value=20,
+                    marks={0: "00", 6: "06", 12: "12", 18: "18", 23: "23"},
+                    tooltip={"placement": "bottom", "always_visible": False},
+                    updatemode="mouseup",
+                    className="hour-selector",
+                ),
             ],
             className="controls",
         ),
@@ -372,12 +497,26 @@ def update_selected_parents(click_data, clear_clicks, selected_parents):
     Output("metric-cards", "children"),
     Output("clear-button", "style"),
     Input("selected-parents", "data"),
-    Input("metric-selector", "value"),
+    State("metric-selector", "value"),
+    State("day-selector", "value"),
+    State("hour-selector", "value"),
 )
-def update_map(selected_parents, metric_key):
+def update_map(selected_parents, metric_key, day, hour):
     if selected_parent_ids(selected_parents):
-        return make_child_map(selected_parents, metric_key), make_status(selected_parents), {"display": "inline-flex"}
-    return make_parent_map(selected_parents, metric_key), make_status(selected_parents), {"display": "none"}
+        return make_child_map(selected_parents, metric_key, day, hour), make_status(selected_parents), {"display": "inline-flex"}
+    return make_parent_map(selected_parents, metric_key, day, hour), make_status(selected_parents), {"display": "none"}
+
+
+@callback(
+    Output("map", "figure", allow_duplicate=True),
+    Input("metric-selector", "value"),
+    Input("day-selector", "value"),
+    Input("hour-selector", "value"),
+    State("selected-parents", "data"),
+    prevent_initial_call=True,
+)
+def update_map_metric(metric_key, day, hour, selected_parents):
+    return patch_map_metric(selected_parents, metric_key, day, hour)
 
 
 app.index_string = """
@@ -398,13 +537,16 @@ app.index_string = """
             .metric-card { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 12px 14px; min-height: 58px; }
             .card-label { font-size: 12px; color: #5f6368; }
             .card-value { margin-top: 4px; font-size: 22px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .controls { display: flex; align-items: center; gap: 16px; padding: 0 24px 14px; }
+            .controls { display: grid; grid-template-columns: auto minmax(360px, 1fr) auto 150px auto minmax(220px, 360px); align-items: center; gap: 12px 16px; padding: 0 24px 14px; }
             .control-label { font-size: 13px; font-weight: 700; color: #3c4043; }
             .metric-selector label { display: inline-flex; align-items: center; gap: 6px; margin-right: 18px; font-size: 14px; color: #202124; }
             .metric-selector input { margin: 0; }
+            .day-selector { min-width: 150px; }
+            .hour-selector { min-width: 220px; }
             .map-panel { margin: 0 24px 10px; background: white; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
             .footnote { margin: 0 24px 24px; color: #5f6368; font-size: 13px; }
             @media (max-width: 1100px) { .metric-cards { grid-template-columns: repeat(2, 1fr); } }
+            @media (max-width: 1100px) { .controls { grid-template-columns: 1fr; align-items: stretch; } }
             @media (max-width: 900px) { .header { grid-template-columns: 1fr; } }
         </style>
     </head>

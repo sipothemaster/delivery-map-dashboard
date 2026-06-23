@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -28,10 +29,12 @@ def load_parent_coverage() -> pd.DataFrame:
     return df
 
 
+@lru_cache(maxsize=1)
 def load_parent_geojson() -> dict:
     return read_geojson(str(PARENT_GEOJSON_FILE))
 
 
+@lru_cache(maxsize=1)
 def load_area_coverage_with_parent() -> pd.DataFrame:
     coverage = read_frame(str(AREA_COVERAGE_FILE))
     lookup = read_frame(str(PARENT_LOOKUP_FILE))
@@ -40,6 +43,7 @@ def load_area_coverage_with_parent() -> pd.DataFrame:
     return coverage.merge(lookup, on="area_id", how="left")
 
 
+@lru_cache(maxsize=512)
 def load_child_geojson(parent_id: str) -> dict:
     path = CHILD_TILE_DIR / f"{safe_parent_id(parent_id)}.geojson"
     if not path.exists():

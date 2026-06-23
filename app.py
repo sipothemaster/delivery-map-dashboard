@@ -477,26 +477,33 @@ app.layout = html.Div(
                     inline=True,
                     className="metric-selector",
                 ),
-                html.Div("Day", className="control-label"),
-                dcc.Dropdown(
-                    id="day-selector",
-                    options=[{"label": day, "value": day} for day in DAYS],
-                    value="Friday",
-                    clearable=False,
-                    searchable=False,
-                    className="day-selector",
-                ),
-                html.Div("Hour", className="control-label"),
-                dcc.Slider(
-                    id="hour-selector",
-                    min=0,
-                    max=23,
-                    step=1,
-                    value=20,
-                    marks={0: "00", 6: "06", 12: "12", 18: "18", 23: "23"},
-                    tooltip={"placement": "bottom", "always_visible": False},
-                    updatemode="mouseup",
-                    className="hour-selector",
+                html.Div(
+                    [
+                        html.Div("Day", className="control-label"),
+                        dcc.Dropdown(
+                            id="day-selector",
+                            options=[{"label": day, "value": day} for day in DAYS],
+                            value="Friday",
+                            clearable=False,
+                            searchable=False,
+                            className="day-selector",
+                        ),
+                        html.Div("Hour", className="control-label"),
+                        dcc.Slider(
+                            id="hour-selector",
+                            min=0,
+                            max=23,
+                            step=1,
+                            value=20,
+                            marks={0: "00", 6: "06", 12: "12", 18: "18", 23: "23"},
+                            tooltip={"placement": "bottom", "always_visible": False},
+                            updatemode="mouseup",
+                            className="hour-selector",
+                        ),
+                    ],
+                    id="time-controls",
+                    className="time-controls",
+                    style={"display": "none"},
                 ),
             ],
             className="controls",
@@ -551,6 +558,16 @@ def update_map_metric(metric_key, day, hour, selected_parents):
     return patch_map_metric(selected_parents, metric_key, day, hour)
 
 
+@callback(
+    Output("time-controls", "style"),
+    Input("metric-selector", "value"),
+)
+def toggle_time_controls(metric_key):
+    if is_opening_metric(metric_key):
+        return {"display": "grid"}
+    return {"display": "none"}
+
+
 app.index_string = """
 <!DOCTYPE html>
 <html>
@@ -569,7 +586,8 @@ app.index_string = """
             .metric-card { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 12px 14px; min-height: 58px; }
             .card-label { font-size: 12px; color: #5f6368; }
             .card-value { margin-top: 4px; font-size: 22px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .controls { display: grid; grid-template-columns: auto minmax(360px, 1fr) auto 150px auto minmax(220px, 360px); align-items: center; gap: 12px 16px; padding: 0 24px 14px; }
+            .controls { display: grid; grid-template-columns: auto minmax(360px, 1fr) minmax(420px, 560px); align-items: center; gap: 12px 16px; padding: 0 24px 14px; }
+            .time-controls { display: grid; grid-template-columns: auto 150px auto minmax(220px, 1fr); align-items: center; gap: 12px 16px; }
             .control-label { font-size: 13px; font-weight: 700; color: #3c4043; }
             .metric-selector label { display: inline-flex; align-items: center; gap: 6px; margin-right: 18px; font-size: 14px; color: #202124; }
             .metric-selector input { margin: 0; }
@@ -579,6 +597,7 @@ app.index_string = """
             .footnote { margin: 0 24px 24px; color: #5f6368; font-size: 13px; }
             @media (max-width: 1100px) { .metric-cards { grid-template-columns: repeat(2, 1fr); } }
             @media (max-width: 1100px) { .controls { grid-template-columns: 1fr; align-items: stretch; } }
+            @media (max-width: 1100px) { .time-controls { grid-template-columns: 1fr; align-items: stretch; } }
             @media (max-width: 900px) { .header { grid-template-columns: 1fr; } }
         </style>
     </head>

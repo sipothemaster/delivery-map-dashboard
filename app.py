@@ -22,6 +22,23 @@ PARENT_GEOJSON = load_parent_geojson()
 AREA_COVERAGE = load_area_coverage_with_parent()
 DATA_MODE = "parent overview + lazy child tiles"
 PARENT_NAME_BY_ID = dict(zip(PARENT_COVERAGE["parent_id"], PARENT_COVERAGE["parent_name"]))
+PARENT_BOUNDARIES = [
+    {
+        "parent_id": str((feature.get("properties") or {}).get("parent_id")),
+        "parent_name": str((feature.get("properties") or {}).get("parent_name")),
+    }
+    for feature in PARENT_GEOJSON.get("features", [])
+    if (feature.get("properties") or {}).get("parent_id")
+]
+PARENT_BOUNDARY_IDS = [row["parent_id"] for row in PARENT_BOUNDARIES]
+PARENT_BOUNDARY_CUSTOMDATA = [
+    [
+        row["parent_id"],
+        row["parent_name"],
+        "Click to add to selection" if row["parent_id"] in PARENT_NAME_BY_ID else "Boundary only",
+    ]
+    for row in PARENT_BOUNDARIES
+]
 MAP_UIREVISION = "delivery-map-preserve-view"
 DEFAULT_CENTER = {"lat": 54.7, "lon": -3.2}
 DEFAULT_ZOOM = 4.7
@@ -242,22 +259,23 @@ def add_selected_parent_outline_layer(fig: go.Figure, selected_ids: list[str]) -
 
 
 def parent_click_trace(selected_ids: list[str]) -> go.Choroplethmapbox:
-    z_values = PARENT_COVERAGE["parent_id"].isin(selected_ids).astype(int)
+    selected = set(selected_ids)
+    z_values = [1 if parent_id in selected else 0 for parent_id in PARENT_BOUNDARY_IDS]
     return go.Choroplethmapbox(
         geojson=PARENT_GEOJSON,
-        locations=PARENT_COVERAGE["parent_id"],
+        locations=PARENT_BOUNDARY_IDS,
         z=z_values,
         featureidkey="properties.parent_id",
         colorscale=[
-            [0, "rgba(255,255,255,0.03)"],
-            [1, "rgba(31,41,51,0.10)"],
+            [0, "rgba(241,245,249,0.16)"],
+            [1, "rgba(31,41,51,0.16)"],
         ],
         showscale=False,
-        marker_opacity=0.08,
-        marker_line_color="#334155",
-        marker_line_width=1.15,
-        customdata=PARENT_COVERAGE[["parent_id", "parent_name"]].values,
-        hovertemplate="<b>%{customdata[1]}</b><br>Click to add to selection<extra></extra>",
+        marker_opacity=0.16,
+        marker_line_color="#111827",
+        marker_line_width=1.65,
+        customdata=PARENT_BOUNDARY_CUSTOMDATA,
+        hovertemplate="<b>%{customdata[1]}</b><br>%{customdata[2]}<extra></extra>",
         name="Add local authority",
     )
 

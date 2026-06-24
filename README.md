@@ -6,31 +6,40 @@ This project is intentionally separate from the delivery scraping and cloud pipe
 
 ## Current MVP
 
-The current app focuses on one static metric:
+The current app is a two-level interactive delivery map. It starts from a LAD overview and lazily loads LSOA / Scottish Data Zone polygons after one or more LADs are selected.
+
+Current map metrics:
 
 - `deliverable_restaurant_count`: full number of restaurants that can deliver to each representative postcode / LSOA / Data Zone.
+- `fast_food_restaurant_count`: number of deliverable restaurants tagged by the current rule-based fast-food taxonomy.
+- `fast_food_restaurant_share`: fast-food restaurants divided by food restaurants after grocery/non-restaurant exclusions.
+- `open_restaurant_count`: hourly count of restaurants open for delivery.
+- `open_restaurant_share`: hourly open restaurants divided by food restaurants.
 
-The metric is built from the static tables:
+The static delivery and fast-food metrics are built from:
 
 - `delivery_availability.postcode_restaurant_delivery_map`
 - `delivery_availability.restaurant_profile`
 
-It does not use temporal/open-now snapshot tables. Snapshot tables represent time-window availability and should be added later as a separate temporal layer, not mixed into this full-coverage MVP metric.
+The opening-time metrics are built from `delivery_availability.restaurant_opening_times` through the derived `area_opening_coverage` table and local hourly parquet caches. These are separate from temporal/open-now snapshot tables.
 
 ## Map Behaviour
 
-The first screen is a lightweight Local Authority District overview. It avoids loading all 43,064 child polygons on initial page load.
+The first screen is a lightweight Local Authority District overview. It avoids loading all child LSOA / Data Zone polygons on initial page load.
 
-- Overview layer: UK LAD polygons.
+- Overview layer: coverage LAD polygons only. Northern Ireland is excluded because the current representative-postcode delivery coverage is GB-only.
 - Click an unselected LAD to add it to the comparison set.
 - Selecting a LAD preserves the current map view; it does not auto-zoom.
 - Multiple LADs can be selected together.
-- LAD outlines remain visible while child areas are shown.
+- LAD boundaries remain visible while child areas are shown.
 - When LADs are selected, only their LSOA / Data Zone child polygons are loaded.
+- In child view, the LAD boundary/click layer stays underneath the LSOA / Data Zone layer. This allows other LADs to remain clickable without blocking child-area hover.
 - Hovering child polygons shows child area information and the delivery count.
 - Use `Clear selection` to reset the selected LADs.
 
 The colour scale is recalculated from the currently visible child areas, so selected LADs can be compared against each other with a local distribution.
+
+The day/hour controls are shown only for opening-time metrics. Static total and fast-food metrics hide the time controls because they do not vary by hour.
 
 ## Project Layout
 
@@ -88,6 +97,8 @@ Build hourly delivery opening-time coverage:
 ```
 
 This creates `area_opening_coverage` in BigQuery and local hourly parquet caches under `data/cache/opening_by_hour/` and `data/cache/parent_opening_by_hour/`.
+
+The opening-time calculation currently uses delivery opening intervals. A delivery/collection selector can be added later once collection is needed in the UI.
 
 ## Run
 

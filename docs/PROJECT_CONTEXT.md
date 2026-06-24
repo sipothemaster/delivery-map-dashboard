@@ -1,6 +1,6 @@
 # Delivery Map Dashboard Context
 
-Last updated: 2026-06-22
+Last updated: 2026-06-24
 
 ## Purpose
 
@@ -11,13 +11,17 @@ The dashboard is intended to show where restaurants can deliver, projected from 
 - England/Wales: LSOA
 - Scotland: Data Zone
 
-The current MVP deliberately keeps the first page simple: an interactive delivery map with deliverable restaurant counts by area.
+The current MVP deliberately keeps the first page simple: an interactive delivery map with selectable metrics by area. It is map-first rather than a BigQuery/table dashboard.
 
 ## Data Scope
 
-Current metric:
+Current metrics:
 
 - `deliverable_restaurant_count`
+- `fast_food_restaurant_count`
+- `fast_food_restaurant_share`
+- `open_restaurant_count`
+- `open_restaurant_share`
 
 Current source tables:
 
@@ -27,8 +31,9 @@ Current source tables:
 Important distinction:
 
 - Use the static postcode-to-restaurant delivery map for the current MVP.
-- Do not use temporal/open-now snapshot tables for the static coverage metric.
-- Snapshot data can be added later as a separate time interaction layer.
+- Do not use temporal/open-now snapshot tables for the static coverage, total restaurant, or fast-food metrics.
+- The opening-time metrics use `delivery_availability.restaurant_opening_times`, not snapshot open-now data.
+- Snapshot data can be added later as a separate time interaction layer if the dashboard needs observed crawl-window availability.
 
 The static source currently has a label value `weekday_full_20260520`. In the dashboard and derived table this is treated as `coverage_label`, not as an open-now snapshot.
 
@@ -46,9 +51,16 @@ Derived BigQuery/local cache:
 
 - `delivery_availability.area_representative_postcodes`
 - `delivery_availability.area_delivery_coverage`
+- `delivery_availability.area_opening_coverage`
 - `data/cache/area_delivery_coverage.parquet`
+- `data/cache/opening_by_hour/*.parquet`
+- `data/cache/parent_opening_by_hour/*.parquet`
 
 The coverage table joins representative postcodes to `postcode_restaurant_delivery_map` and counts full deliverable restaurants for each area.
+
+The opening coverage table expands `restaurant_opening_times` into day/hour availability and joins it back to area-level deliverability. It currently uses delivery opening intervals. A collection/delivery selector is a future UI addition.
+
+Fast-food metrics are rule-based. Grocery/non-restaurant categories are excluded from the denominator, and a selected set of strong fast-food cuisine tags is counted in the numerator. See `docs/FAST_FOOD_METRIC_NOTES.md`.
 
 ## Boundary Strategy
 
@@ -58,6 +70,8 @@ Rendering all LSOA/Data Zone polygons at first load is too slow. The current des
 - Child LSOA/Data Zone polygons are split into per-LAD GeoJSON tiles.
 - Selecting a LAD loads only that LAD's child tile.
 - Multiple LADs can be selected for comparison.
+- LAD boundaries are filtered to LADs present in the delivery coverage table. Northern Ireland is excluded because the current representative-postcode crawl coverage is GB-only.
+- In child view, a LAD boundary/click choropleth is kept underneath the child LSOA/Data Zone choropleth. This preserves child hover while still allowing unselected LADs to be clicked.
 
 Generated boundary/cache artifacts:
 
@@ -67,6 +81,8 @@ Generated boundary/cache artifacts:
 - `data/cache/parent_delivery_coverage.parquet`
 
 These generated files are not intended for git. Rebuild them with `scripts/download_boundaries.py` and `scripts/build_parent_tiles.py`.
+
+Do not reintroduce all UK LAD boundaries into the visible app unless the coverage table is also expanded. Showing Northern Ireland boundaries without coverage is confusing for this dashboard.
 
 ## Current Interaction Contract
 
@@ -84,8 +100,11 @@ The map should behave as follows:
 Current implementation approach:
 
 - Child LSOA/DZ choropleth is the main visible data layer after selection.
-- Unselected LADs remain as transparent click targets for adding more LADs.
-- LAD outlines are drawn as non-interactive Mapbox line layers.
+- A coverage-only LAD choropleth remains underneath the child layer as the boundary/click target.
+- The child layer is above the LAD layer, so selected-area hover returns LSOA/Data Zone information rather than toggling selection.
+- Selected LAD outlines are reinforced with a lightweight line layer.
+- Static metrics update via Plotly `Patch`; in child view the metric trace is index 1 because index 0 is the LAD boundary/click trace.
+- Time controls are visible only when the selected metric starts with `open_`.
 
 ## Near-Term Next Steps
 
@@ -93,7 +112,8 @@ Likely next dashboard additions:
 
 - Details panel after selecting/hovering an LSOA/Data Zone.
 - Restaurant list for selected child area.
-- Time-window interaction using snapshot tables.
+- Delivery/collection selector for opening-time metrics.
+- Time-window interaction using snapshot tables, if observed crawl-window availability is needed.
 - Restaurant category filters after classification is available.
 - Menu analysis layers by postcode/area.
 
